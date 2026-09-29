@@ -4,7 +4,11 @@
 
 Create simple rules that tell the extension **what text to watch for** and **what response to send**. When a match appears in the rendered conversation, AI Flow Automator waits for the configured delay and submits the corresponding response automatically.
 
-It is designed for long-running AI workflows where the conversation may repeatedly pause and wait for predictable user input.
+One of its main use cases is **AI-assisted coding**. Long coding sessions often involve repeated cycles where an AI assistant or coding agent analyzes code, modifies files, runs checks, reviews results, and pauses before continuing. AI Flow Automator can automatically handle predictable follow-up messages so the workflow can keep moving with less manual intervention.
+
+It is also useful for other long-running AI workflows that periodically pause and wait for predictable user input.
+
+> You define the conditions. AI Flow Automator handles the repetitive replies.
 
 ---
 
@@ -43,19 +47,63 @@ Rules are evaluated **from top to bottom**, so their order matters. If more than
 
 ## Why use AI Flow Automator?
 
-Some AI workflows can run for a long time but occasionally stop and wait for another message before continuing.
+AI workflows can run for a long time but may periodically stop and wait for another message before continuing.
 
-That often means repeatedly returning to the conversation just to send a predictable response.
+This is especially common in **coding workflows**, where an AI assistant or coding agent may:
 
-For example:
+- inspect a codebase,
+- modify files,
+- run or review tests,
+- analyze errors,
+- continue debugging,
+- refactor code,
+- move to the next implementation step,
+- or wait for a simple confirmation before proceeding.
 
-1. The AI completes part of a task.
-2. The conversation reaches a point where the assistant is waiting for the next input.
-3. You send a short response.
-4. The AI continues working.
-5. The process repeats.
+Without automation, you may need to keep returning to the conversation just to send predictable responses such as:
 
-AI Flow Automator can handle those repetitive responses automatically.
+```text
+Proceed
+```
+
+```text
+Continue
+```
+
+```text
+Go ahead
+```
+
+AI Flow Automator can handle those repetitive interactions automatically.
+
+A typical coding workflow may look like this:
+
+```text
+AI analyzes the project
+        ↓
+AI modifies the code
+        ↓
+AI reviews or runs the next step
+        ↓
+AI waits for input
+        ↓
+AI Flow Automator sends the configured response
+        ↓
+AI continues working
+```
+
+This can be especially useful during:
+
+- multi-step code generation,
+- debugging workflows,
+- test-and-fix cycles,
+- refactoring sessions,
+- codebase analysis,
+- migration tasks,
+- repetitive implementation steps,
+- and other long-running agentic coding tasks.
+
+AI Flow Automator is not limited to coding. The same rule-based approach can be used with any AI workflow where predictable text should trigger a predefined response.
 
 You decide exactly which text should trigger an action and exactly what response should be sent.
 
@@ -229,6 +277,8 @@ Last: 00:06 | 00:07 | 00:03
 
 This makes it easier to monitor long-running AI workflows without using a separate timer.
 
+It can be particularly useful during long coding sessions where multiple generation cycles happen one after another.
+
 ---
 
 ## Duplicate protection
@@ -370,9 +420,11 @@ For complete information about how the extension handles data, see the **AI Flow
 
 ---
 
-## Example workflow
+## Example coding workflow
 
-Suppose an AI workflow performs several tasks sequentially and eventually displays:
+Suppose you are using an AI assistant for a long coding task.
+
+The assistant analyzes the project, edits multiple files, reviews the result, and eventually displays:
 
 ```text
 Ready for your next instruction
@@ -385,22 +437,51 @@ Expected text: Ready for your next instruction
 Response text: Proceed
 ```
 
-With automation enabled, AI Flow Automator detects the matching text.
-
-It then:
+With automation enabled, AI Flow Automator detects the matching text and handles the next step automatically.
 
 ```text
-Detects the expected text
+AI analyzes the code
         ↓
-Selects the matching rule
+AI modifies files
+        ↓
+AI reaches the configured condition
+        ↓
+AI Flow Automator detects the text
         ↓
 Waits for the configured delay
         ↓
 Sends "Proceed"
         ↓
-The AI continues
+AI continues working
         ↓
 AI Flow Automator keeps monitoring
+```
+
+This can reduce repetitive manual interaction during long implementation, debugging, refactoring, migration, or testing sessions.
+
+---
+
+## General example workflow
+
+The same mechanism works outside coding.
+
+Suppose an AI workflow eventually displays:
+
+```text
+Waiting for your input
+```
+
+You configure:
+
+```text
+Expected text: Waiting for your input
+Response text: Go ahead
+```
+
+With automation enabled, AI Flow Automator detects the expected text, waits for the configured delay, and automatically submits:
+
+```text
+Go ahead
 ```
 
 If another configured condition appears later, the same process happens again.
@@ -505,4 +586,4 @@ Duplicate protection
 Monitoring again
 ```
 
-This makes repetitive AI workflows easier to run without constantly returning to the conversation to send the same predictable responses.
+Whether you are running a long **AI coding session** or another repetitive AI workflow, AI Flow Automator helps reduce manual interruptions and keeps predictable conversations moving automatically.
