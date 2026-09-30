@@ -32,10 +32,10 @@
     isolation: isolate !important;
 }
 #aiflow-root[data-settings-open="1"] {
-    width: 720px !important;
+    width: 940px !important;
 }
 #aiflow-root[data-theme="dark"] {
-    --aiflow-text: #e5e7eb;
+    --aiflow-text: #d7dde5;
     --aiflow-muted: #94a3b8;
     --aiflow-panel: rgba(20, 24, 31, .99);
     --aiflow-shell: rgba(26, 32, 40, .94);
@@ -198,33 +198,43 @@
     flex: 0 0 40px !important;
     width: 40px !important;
     height: 40px !important;
+    color: var(--aiflow-muted) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+#aiflow-settings-toggle {
     padding: 8px !important;
     border: 1px solid var(--aiflow-border) !important;
     border-radius: 9px !important;
     background: var(--aiflow-panel) !important;
-    color: var(--aiflow-muted) !important;
     box-shadow: 0 2px 8px rgba(15, 23, 42, .10) !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    cursor: pointer !important;
     transition: background .15s ease, color .15s ease, transform .15s ease !important;
 }
-#aiflow-settings-toggle {
-    cursor: pointer !important;
-}
 #aiflow-drag-handle {
+    padding: 8px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
     cursor: grab !important;
     touch-action: none !important;
     user-select: none !important;
+    transition: color .15s ease !important;
 }
 #aiflow-root[data-dragging="1"] #aiflow-drag-handle {
     cursor: grabbing !important;
 }
-#aiflow-settings-toggle:hover,
-#aiflow-drag-handle:hover {
+#aiflow-settings-toggle:hover {
     background: var(--aiflow-soft) !important;
     color: var(--aiflow-text) !important;
     transform: translateY(-1px) !important;
+}
+#aiflow-drag-handle:hover {
+    background: transparent !important;
+    color: var(--aiflow-text) !important;
+    transform: none !important;
 }
 #aiflow-settings-toggle svg {
     width: 23px !important;
@@ -381,6 +391,9 @@
     font-size: 12px !important;
     outline: none !important;
 }
+#aiflow-root .aiflow-field input {
+    color: var(--aiflow-accent) !important;
+}
 #aiflow-root .aiflow-delay-input {
     display: grid !important;
     grid-template-columns: minmax(90px, 1fr) auto !important;
@@ -401,7 +414,7 @@
 #aiflow-root .aiflow-table-wrap {
     max-height: 350px !important;
     overflow-y: auto !important;
-    overflow-x: hidden !important;
+    overflow-x: auto !important;
     padding-right: 3px !important;
 }
 #aiflow-rules-table {
@@ -433,7 +446,7 @@
     border: 1px solid var(--aiflow-input-border) !important;
     border-radius: 7px !important;
     background: var(--aiflow-input) !important;
-    color: var(--aiflow-text) !important;
+    color: var(--aiflow-accent) !important;
     font-size: 12px !important;
     line-height: 1.4 !important;
     outline: none !important;
@@ -537,5 +550,165 @@
     }
     #aiflow-root .aiflow-settings-meta {
         justify-content: flex-start !important;
+    }
+}
+
+/* v2.6 settings additions */
+#aiflow-settings {
+    max-height: calc(100vh - 20px) !important;
+    overflow-y: auto !important;
+}
+#aiflow-root .aiflow-automation-triggers {
+    margin-bottom: 12px !important;
+    padding: 10px !important;
+    border: 1px solid var(--aiflow-border) !important;
+    border-radius: 9px !important;
+    background: var(--aiflow-shell) !important;
+}
+#aiflow-root .aiflow-section-title {
+    margin-bottom: 9px !important;
+    color: var(--aiflow-text) !important;
+    font-size: 12.5px !important;
+    font-weight: 800 !important;
+}
+#aiflow-root .aiflow-trigger-row {
+    display: grid !important;
+    grid-template-columns: minmax(260px, 1fr) auto !important;
+    align-items: end !important;
+    gap: 10px !important;
+    margin-top: 8px !important;
+}
+#aiflow-root .aiflow-trigger-row:first-of-type {
+    margin-top: 0 !important;
+}
+#aiflow-root .aiflow-trigger-text input {
+    width: 100% !important;
+}
+#aiflow-root .aiflow-trigger-help {
+    margin-top: 9px !important;
+    color: var(--aiflow-muted) !important;
+    font-size: 10.5px !important;
+    line-height: 1.4 !important;
+}
+#aiflow-rules-table th:nth-child(3),
+#aiflow-rules-table td:nth-child(3) {
+    width: 58px !important;
+    text-align: center !important;
+}
+#aiflow-root .aiflow-notification-heading svg {
+    width: 19px !important;
+    height: 19px !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+}
+#aiflow-root .aiflow-notification-cell {
+    text-align: center !important;
+}
+#aiflow-root .aiflow-notification-check {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+}
+#aiflow-root .aiflow-notification-check input {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+#aiflow-root .aiflow-notification-check > span {
+    width: 30px !important;
+    height: 30px !important;
+    padding: 5px !important;
+    border: 1px solid var(--aiflow-input-border) !important;
+    border-radius: 7px !important;
+    background: var(--aiflow-input) !important;
+    color: var(--aiflow-muted) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: background .15s ease, color .15s ease, border-color .15s ease !important;
+}
+#aiflow-root .aiflow-notification-check > span svg {
+    width: 18px !important;
+    height: 18px !important;
+    display: block !important;
+}
+#aiflow-root .aiflow-notification-check input:checked + span {
+    border-color: var(--aiflow-accent-border) !important;
+    background: var(--aiflow-accent) !important;
+    color: #ffffff !important;
+}
+#aiflow-root .aiflow-notification-check input:focus-visible + span {
+    outline: 2px solid var(--aiflow-accent) !important;
+    outline-offset: 2px !important;
+}
+@media (max-width: 700px) {
+    #aiflow-root .aiflow-trigger-row {
+        grid-template-columns: 1fr !important;
+        align-items: stretch !important;
+    }
+}
+
+
+/* v2.6 rule search scope and compact Search in controls */
+#aiflow-root .aiflow-trigger-row {
+    grid-template-columns: minmax(320px, 1fr) 180px !important;
+}
+#aiflow-root .aiflow-scope-select {
+    min-width: 0 !important;
+}
+#aiflow-root .aiflow-rules-header {
+    margin-top: 2px !important;
+    margin-bottom: 7px !important;
+}
+#aiflow-rules-table {
+    min-width: 790px !important;
+}
+#aiflow-rules-table th:nth-child(1),
+#aiflow-rules-table td:nth-child(1) {
+    width: 34% !important;
+}
+#aiflow-rules-table th:nth-child(2),
+#aiflow-rules-table td:nth-child(2) {
+    width: 34% !important;
+}
+#aiflow-rules-table th:nth-child(3),
+#aiflow-rules-table td:nth-child(3) {
+    width: 58px !important;
+    text-align: center !important;
+}
+#aiflow-rules-table th:nth-child(4),
+#aiflow-rules-table td:nth-child(4) {
+    width: 138px !important;
+}
+#aiflow-rules-table th:nth-child(5),
+#aiflow-rules-table td:nth-child(5) {
+    width: 36px !important;
+}
+#aiflow-root .aiflow-rule-search-cell {
+    vertical-align: middle !important;
+}
+#aiflow-root .aiflow-rule-search {
+    width: 100% !important;
+    height: 34px !important;
+    padding: 6px 8px !important;
+    border: 1px solid var(--aiflow-input-border) !important;
+    border-radius: 7px !important;
+    background: var(--aiflow-input) !important;
+    color: var(--aiflow-text) !important;
+    font-size: 11.5px !important;
+    font-weight: 650 !important;
+    outline: none !important;
+}
+#aiflow-root .aiflow-rule-search:focus {
+    border-color: var(--aiflow-accent) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--aiflow-accent) 18%, transparent) !important;
+}
+@media (max-width: 700px) {
+    #aiflow-root .aiflow-trigger-row {
+        grid-template-columns: 1fr !important;
     }
 }

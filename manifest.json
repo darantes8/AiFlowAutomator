@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "AI Flow Automator",
-  "version": "2.4.0",
+  "version": "2.6.6",
   "description": "Detect configured text in AI responses and send configured replies across AI web apps.",
   "permissions": [
-    "storage"
+    "storage",
+    "notifications"
   ],
   "incognito": "split",
   "background": {

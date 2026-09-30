@@ -5,12 +5,14 @@
  *   or a click on the extension toolbar action; visibility survives a reload in the same tab.
  * - Automation is independent from widget visibility. ON/OFF is explicit.
  * - Existing page text is baselined when automation is enabled; old answers never fire a rule.
+ * - Rule monitoring waits for full page load and a short DOM-quiet period before it can fire.
  * - The first configured matching rule wins.
  * - User-typed composer text is never overwritten.
  * - A reply is sent only after the matched response is stable and generation is not active.
  * - Known AI providers use provider-specific selectors. Unknown AI sites use a conservative
  *   mutation-based text fallback.
- * - Rules/theme/send delay persist across tabs; runtime UI state, counters, position and generation times survive reloads in the same tab.
+ * - The generation timer starts only from a detected message submission, never from page-rendering mutations alone.
+ * - Rules, per-rule search scopes, notification flags, trigger conditions, theme and send delay persist across tabs; runtime UI state, counters, position and generation times survive reloads in the same tab.
  */
 
 (() => {
@@ -20,9 +22,10 @@
         return;
     }
 
-    const VERSION = '2.4.0';
+    const VERSION = '2.6.6';
     const ROOT_ID = 'aiflow-root';
     const MESSAGE_TOGGLE_WIDGET = 'AIFLOW_TOGGLE_WIDGET';
+    const MESSAGE_NOTIFY_RULE = 'AIFLOW_NOTIFY_RULE';
 
     const CONFIG = {
         stabilityMs: 1400,
@@ -32,6 +35,8 @@
         observerDelayMs: 120,
         fallbackMs: 2000,
         timerIntervalMs: 250,
+        pageLoadSettleMs: 1200,
+        pageLoadSettleMaxMs: 8000,
         maxTimeHistory: 8,
         genericSurfaceMaxAgeMs: 45000,
         genericSurfaceLimit: 16,
@@ -55,9 +60,13 @@
     };
 
     const DEFAULT_PREFERENCES = {
-        theme: 'light',
+        theme: 'dark',
         accent: 'green',
         sendDelayMs: CONFIG.defaultSendDelayMs,
+        automationStartText: '',
+        automationStartScope: 'content',
+        automationStopText: '',
+        automationStopScope: 'content',
     };
 
     const DEFAULT_RULES = [
@@ -65,21 +74,29 @@
             id: 'default-next',
             expectedText: 'Aguardando proximo',
             responseText: 'proximo',
+            notify: false,
+            searchScope: 'content',
         },
         {
             id: 'default-resume-stream',
             expectedText: 'Resume stream unavailable',
             responseText: 'continue',
+            notify: false,
+            searchScope: 'content',
         },
         {
             id: 'default-stream-timeout',
             expectedText: 'ChatGPT stream recovery polling timed out',
             responseText: 'continue',
+            notify: false,
+            searchScope: 'content',
         },
         {
             id: 'default-generation-error',
             expectedText: 'There was an error generating a response',
             responseText: 'continue',
+            notify: false,
+            searchScope: 'content',
         },
     ];
 
@@ -448,6 +465,9 @@
     let preferences = { ...DEFAULT_PREFERENCES };
     let processing = false;
     let scheduledCheck = null;
+    let scheduledAutomationTriggerCheck = null;
+    let monitoringReady = false;
+    let automationTriggerFingerprints = { start: '', stop: '' };
     let generationStartedAt = null;
     let generationObservedResponse = false;
     let generationLastResponseChangeAt = null;
@@ -455,17 +475,84 @@
     let generationSawActiveSignal = false;
     let widgetVisible = false;
     let lastVisibilityToggleAt = 0;
+    let settingsReturnPosition = null;
     let elementSequence = 0;
 
     const elementIds = new WeakMap();
     const surfaceStates = new Map();
     const processedMatches = new Set();
     const completedSurfaceStates = new Set();
+    const baselinedMatchFingerprints = new Set();
     const sentMatchFingerprints = new Set();
     const recentGenericElements = new Map();
 
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitForWindowLoad() {
+        if (document.readyState === 'complete') {
+            return Promise.resolve();
+        }
+
+        return new Promise(resolve => {
+            window.addEventListener('load', resolve, { once: true });
+        });
+    }
+
+    async function waitForPageLoadAndSettle() {
+        await waitForWindowLoad();
+
+        if (!document.body) {
+            return;
+        }
+
+        await new Promise(resolve => {
+            let quietTimer = null;
+            let maxTimer = null;
+            let finished = false;
+
+            const finish = () => {
+                if (finished) {
+                    return;
+                }
+
+                finished = true;
+                observer.disconnect();
+                window.clearTimeout(quietTimer);
+                window.clearTimeout(maxTimer);
+                resolve();
+            };
+
+            const armQuietTimer = () => {
+                window.clearTimeout(quietTimer);
+                quietTimer = window.setTimeout(finish, CONFIG.pageLoadSettleMs);
+            };
+
+            const observer = new MutationObserver(mutations => {
+                const hasPageMutation = mutations.some(mutation => {
+                    const rawTarget = mutation.target;
+                    const target = rawTarget instanceof Element
+                        ? rawTarget
+                        : rawTarget?.parentElement;
+
+                    return target && !isInsideExtension(target);
+                });
+
+                if (hasPageMutation) {
+                    armQuietTimer();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+
+            armQuietTimer();
+            maxTimer = window.setTimeout(finish, CONFIG.pageLoadSettleMaxMs);
+        });
     }
 
     function createId() {
@@ -638,6 +725,32 @@
         });
     }
 
+    function chromeStorageSetMany(values) {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.set(values, () => {
+                    const lastError = chrome.runtime.lastError;
+
+                    if (lastError) {
+                        reject(new Error(lastError.message));
+                        return;
+                    }
+
+                    resolve();
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    function isInvalidExtensionContextError(error) {
+        const message = String(error?.message || error || '').toLowerCase();
+        return message.includes('extension context invalidated') ||
+            message.includes('context invalidated') ||
+            message.includes('receiving end does not exist');
+    }
+
     function sanitizeRules(value) {
         if (!Array.isArray(value)) {
             return [];
@@ -648,6 +761,8 @@
                 id: String(rule?.id || createId()),
                 expectedText: normalizeText(rule?.expectedText),
                 responseText: normalizeText(rule?.responseText),
+                notify: Boolean(rule?.notify),
+                searchScope: rule?.searchScope === 'lastLine' ? 'lastLine' : 'content',
             }))
             .filter(rule => rule.expectedText && rule.responseText);
     }
@@ -672,24 +787,10 @@
         }
     }
 
-    async function saveRules(nextRules) {
-        const sanitized = sanitizeRules(nextRules);
-        rules = sanitized;
-
-        try {
-            await chromeStorageSet(STORAGE.rules, sanitized);
-        } catch (error) {
-            console.error('[AI Flow Automator] Could not save rules.', error);
-            throw error;
-        }
-
-        resetDetectionState();
-        markCurrentSurfacesAsProcessed();
-        updateInterface();
-    }
-
     function sanitizePreferences(value) {
-        const theme = value?.theme === 'dark' ? 'dark' : 'light';
+        const theme = value?.theme === 'light'
+            ? 'light'
+            : DEFAULT_PREFERENCES.theme;
         const allowedAccents = new Set([
             'green',
             'blue',
@@ -706,8 +807,23 @@
         const sendDelayMs = Number.isFinite(sendDelayCandidate)
             ? Math.min(60000, Math.max(0, Math.round(sendDelayCandidate)))
             : CONFIG.defaultSendDelayMs;
+        const normalizeTriggerScope = value => value === 'lastLine'
+            ? 'lastLine'
+            : 'content';
+        const automationStartText = normalizeText(value?.automationStartText);
+        const automationStartScope = normalizeTriggerScope(value?.automationStartScope);
+        const automationStopText = normalizeText(value?.automationStopText);
+        const automationStopScope = normalizeTriggerScope(value?.automationStopScope);
 
-        return { theme, accent, sendDelayMs };
+        return {
+            theme,
+            accent,
+            sendDelayMs,
+            automationStartText,
+            automationStartScope,
+            automationStopText,
+            automationStopScope,
+        };
     }
 
     async function loadPreferences() {
@@ -729,20 +845,43 @@
         }
     }
 
-    async function savePreferences(nextPreferences) {
-        const sanitized = sanitizePreferences(nextPreferences);
-        preferences = sanitized;
+    async function saveSettings(nextRules, nextPreferences) {
+        const sanitizedRules = sanitizeRules(nextRules);
+        const sanitizedPreferences = sanitizePreferences(nextPreferences);
 
+        // Persist the complete settings snapshot in one storage operation so
+        // rules and preferences cannot get out of sync if a save is interrupted.
+        await chromeStorageSetMany({
+            [STORAGE.rules]: sanitizedRules,
+            [STORAGE.preferences]: sanitizedPreferences,
+        });
+
+        rules = sanitizedRules;
+        preferences = sanitizedPreferences;
+
+        // Everything below is runtime/UI bookkeeping. A rendering quirk must
+        // never turn an already persisted save into a visible "Save failed".
         try {
-            await chromeStorageSet(STORAGE.preferences, sanitized);
+            resetDetectionState();
+            markCurrentSurfacesAsProcessed();
         } catch (error) {
-            console.error('[AI Flow Automator] Could not save preferences.', error);
-            throw error;
+            console.warn('[AI Flow Automator] Settings saved, but detection state could not be refreshed.', error);
         }
 
-        applyTheme();
-        renderPreferencesEditor();
-        updateInterface();
+        try {
+            primeAutomationTriggerState();
+        } catch (error) {
+            console.warn('[AI Flow Automator] Settings saved, but trigger state could not be refreshed.', error);
+        }
+
+        try {
+            applyTheme();
+            renderRulesEditor();
+            renderPreferencesEditor();
+            updateInterface();
+        } catch (error) {
+            console.warn('[AI Flow Automator] Settings saved, but the interface could not be fully refreshed.', error);
+        }
     }
 
     function isEnabled() {
@@ -752,6 +891,208 @@
     function setEnabled(value) {
         safeSessionSet(STORAGE.enabled, value ? '1' : '0');
         updateInterface();
+    }
+
+    function getLastRenderedLine(text) {
+        const lines = String(text || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+
+        return lines.at(-1) || '';
+    }
+
+    function getPrimaryAssistantText(surface) {
+        const fallbackText = normalizeText(surface?.text);
+        const element = surface?.element;
+
+        if (!(element instanceof Element)) {
+            return fallbackText;
+        }
+
+        // ChatGPT can append resource/file cards after the written answer inside
+        // the same assistant turn. Those cards are rendered text, but they are
+        // not the last textual line of the assistant's answer. Prefer the main
+        // Markdown message body when Last line matching is requested.
+        if (provider.id === 'chatgpt') {
+            const selectors = [
+                '[data-markdown-text-style="assistant-message"]',
+                '[data-markdown-text-tone="assistant-message"]',
+            ];
+
+            for (const selector of selectors) {
+                let candidate = null;
+
+                try {
+                    candidate = element.matches?.(selector)
+                        ? element
+                        : element.querySelector?.(selector);
+                } catch (error) {
+                    candidate = null;
+                }
+
+                const text = readRenderedText(candidate);
+
+                if (text) {
+                    return text;
+                }
+            }
+        }
+
+        return fallbackText;
+    }
+
+    function getSurfaceSearchText(surface, scope) {
+        if (scope === 'lastLine') {
+            return getLastRenderedLine(getPrimaryAssistantText(surface));
+        }
+
+        return normalizeText(surface?.text);
+    }
+
+    function getAutomationTriggerSurface() {
+        const assistant = getKnownAssistantSurface();
+
+        if (assistant?.text) {
+            return assistant;
+        }
+
+        const generic = getGenericSurfaces()[0];
+
+        if (generic?.text) {
+            return generic;
+        }
+
+        const alerts = getVisibleAlerts();
+        return alerts.at(-1) || null;
+    }
+
+    function getAutomationTriggerConfig(kind) {
+        if (kind === 'start') {
+            return {
+                expectedText: preferences.automationStartText,
+                scope: preferences.automationStartScope,
+            };
+        }
+
+        return {
+            expectedText: preferences.automationStopText,
+            scope: preferences.automationStopScope,
+        };
+    }
+
+    function getAutomationTriggerFingerprint(kind) {
+        const config = getAutomationTriggerConfig(kind);
+        const expected = normalizeForMatch(config.expectedText);
+
+        if (!expected) {
+            return '';
+        }
+
+        const surface = getAutomationTriggerSurface();
+
+        if (!surface?.text) {
+            return '';
+        }
+
+        const searchText = getSurfaceSearchText(surface, config.scope);
+        const normalizedSearchText = normalizeForMatch(searchText);
+
+        if (!normalizedSearchText.includes(expected)) {
+            return '';
+        }
+
+        return [
+            kind,
+            config.scope,
+            surface.stableId || surface.id,
+            hashText(normalizeForMatch(
+                config.scope === 'lastLine' ? searchText : surface.text
+            )),
+            hashText(expected),
+        ].join('|');
+    }
+
+    function primeAutomationTriggerState() {
+        if (!monitoringReady && document.readyState !== 'complete') {
+            automationTriggerFingerprints = { start: '', stop: '' };
+            return;
+        }
+
+        automationTriggerFingerprints = {
+            start: getAutomationTriggerFingerprint('start'),
+            stop: getAutomationTriggerFingerprint('stop'),
+        };
+    }
+
+    function enableAutomationFromTrigger(expectedText) {
+        if (isEnabled()) {
+            return;
+        }
+
+        resetDetectionState();
+        markCurrentSurfacesAsProcessed();
+        setEnabled(true);
+        scheduleCheck();
+        console.info('[AI Flow Automator] Automation enabled by text trigger.', {
+            expectedText,
+        });
+    }
+
+    function disableAutomationFromTrigger(expectedText) {
+        if (!isEnabled()) {
+            return;
+        }
+
+        setEnabled(false);
+        console.info('[AI Flow Automator] Automation disabled by text trigger.', {
+            expectedText,
+        });
+    }
+
+    function checkAutomationTriggers() {
+        if (!monitoringReady || isGenerating()) {
+            return;
+        }
+
+        const previous = automationTriggerFingerprints;
+        const current = {
+            start: getAutomationTriggerFingerprint('start'),
+            stop: getAutomationTriggerFingerprint('stop'),
+        };
+
+        automationTriggerFingerprints = current;
+
+        if (
+            isEnabled() &&
+            current.stop &&
+            current.stop !== previous.stop
+        ) {
+            disableAutomationFromTrigger(preferences.automationStopText);
+            return;
+        }
+
+        if (
+            !isEnabled() &&
+            current.start &&
+            current.start !== previous.start
+        ) {
+            enableAutomationFromTrigger(preferences.automationStartText);
+        }
+    }
+
+    function scheduleAutomationTriggerCheck() {
+        if (!monitoringReady || scheduledAutomationTriggerCheck) {
+            return;
+        }
+
+        scheduledAutomationTriggerCheck = window.setTimeout(() => {
+            scheduledAutomationTriggerCheck = null;
+            checkAutomationTriggers();
+        }, CONFIG.observerDelayMs);
     }
 
     function readResponseCounts() {
@@ -811,8 +1152,17 @@
     }
 
     function clearMetrics() {
+        const restartTimer = generationStartedAt !== null || isGenerating();
+
         safeSessionRemove(STORAGE.responseCounts);
         safeSessionRemove(STORAGE.timeHistory);
+
+        generationStartedAt = restartTimer ? Date.now() : null;
+        generationObservedResponse = false;
+        generationLastResponseChangeAt = null;
+        generationLastSurfaceSignature = getLatestResponseSignature();
+        generationSawActiveSignal = restartTimer && isGenerating();
+        persistGenerationStart();
         updateInterface();
     }
 
@@ -1163,18 +1513,26 @@
     }
 
     function buildStableMatchFingerprint(surface, rule) {
+        const scope = rule.searchScope === 'lastLine' ? 'lastLine' : 'content';
+        const searchText = getSurfaceSearchText(surface, scope);
+
         return [
             rule.id,
             surface.stableId || surface.id,
             hashText(normalizeForMatch(rule.expectedText)),
             hashText(normalizeForMatch(rule.responseText)),
-            hashText(normalizeForMatch(surface.text)),
+            scope,
+            hashText(normalizeForMatch(
+                scope === 'lastLine' ? searchText : surface.text
+            )),
         ].join('|');
     }
 
     function ruleMatchesSurface(rule, surface) {
         const expected = normalizeForMatch(rule.expectedText);
-        const visibleText = normalizeForMatch(surface.text);
+        const scope = rule.searchScope === 'lastLine' ? 'lastLine' : 'content';
+        const searchText = getSurfaceSearchText(surface, scope);
+        const visibleText = normalizeForMatch(searchText);
         return Boolean(expected && visibleText.includes(expected));
     }
 
@@ -1196,6 +1554,7 @@
 
                 if (
                     processedMatches.has(processedKey) ||
+                    baselinedMatchFingerprints.has(stableFingerprint) ||
                     sentMatchFingerprints.has(stableFingerprint)
                 ) {
                     continue;
@@ -1217,6 +1576,7 @@
         surfaceStates.clear();
         processedMatches.clear();
         completedSurfaceStates.clear();
+        baselinedMatchFingerprints.clear();
         recentGenericElements.clear();
     }
 
@@ -1231,6 +1591,16 @@
             });
 
             completedSurfaceStates.add(buildSurfaceStateKey(surface));
+
+            if (surface.stableId) {
+                for (const rule of rules) {
+                    if (ruleMatchesSurface(rule, surface)) {
+                        baselinedMatchFingerprints.add(
+                            buildStableMatchFingerprint(surface, rule)
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1303,7 +1673,7 @@
         updateInterface();
     }
 
-    function noteGenerationResponseProgress(allowStart = false) {
+    function noteGenerationResponseProgress() {
         const signature = getLatestResponseSignature();
 
         if (!signature || signature === generationLastSurfaceSignature) {
@@ -1311,19 +1681,10 @@
         }
 
         const now = Date.now();
+        generationLastSurfaceSignature = signature;
 
         if (generationStartedAt === null) {
-            generationLastSurfaceSignature = signature;
-
-            if (!allowStart) {
-                return;
-            }
-
-            generationStartedAt = now;
-            generationSawActiveSignal = isGenerating();
-            persistGenerationStart();
-        } else {
-            generationLastSurfaceSignature = signature;
+            return;
         }
 
         generationObservedResponse = true;
@@ -1355,10 +1716,6 @@
         const now = Date.now();
         const generating = isGenerating();
 
-        if (generating && generationStartedAt === null) {
-            startGenerationTimer(now);
-        }
-
         if (generationStartedAt === null) {
             generationLastSurfaceSignature = getLatestResponseSignature();
             return;
@@ -1368,7 +1725,7 @@
             generationSawActiveSignal = true;
         }
 
-        noteGenerationResponseProgress(false);
+        noteGenerationResponseProgress();
         updateInterface();
 
         if (generating) {
@@ -1657,8 +2014,8 @@
 
             if (sendButton) {
                 const sentAt = Date.now();
-                startGenerationTimer(sentAt);
                 sendButton.click();
+                startGenerationTimer(sentAt);
                 await sleep(220);
                 return true;
             }
@@ -1668,8 +2025,8 @@
             if (form && typeof form.requestSubmit === 'function') {
                 try {
                     const sentAt = Date.now();
-                    startGenerationTimer(sentAt);
                     form.requestSubmit();
+                    startGenerationTimer(sentAt);
                     await sleep(220);
                     return true;
                 } catch (error) {
@@ -1687,15 +2044,34 @@
         return false;
     }
 
+    function notifyRuleTriggered(rule) {
+        if (!rule?.notify) {
+            return;
+        }
+
+        try {
+            chrome.runtime.sendMessage({
+                type: MESSAGE_NOTIFY_RULE,
+                expectedText: normalizeText(rule.expectedText),
+            }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch (error) {
+            console.warn('[AI Flow Automator] Could not request notification.', error);
+        }
+    }
+
     async function checkFlow() {
-        if (!isEnabled() || processing) {
+        if (!monitoringReady || !isEnabled() || processing) {
             return;
         }
 
         processing = true;
 
         try {
-            if (isGenerating()) {
+            checkAutomationTriggers();
+
+            if (!isEnabled() || isGenerating()) {
                 return;
             }
 
@@ -1745,6 +2121,7 @@
             if (sent) {
                 completedSurfaceStates.add(buildSurfaceStateKey(match.surface));
                 incrementResponseCount(match.rule.responseText);
+                notifyRuleTriggered(match.rule);
             } else {
                 unmarkSentMatchFingerprint(match.stableFingerprint);
 
@@ -1760,7 +2137,7 @@
     }
 
     function scheduleCheck() {
-        if (scheduledCheck) {
+        if (!monitoringReady || scheduledCheck) {
             return;
         }
 
@@ -1770,44 +2147,8 @@
         }, CONFIG.observerDelayMs);
     }
 
-    function mutationTouchesAssistantResponse(mutation) {
-        const rawTarget = mutation?.target;
-        const target = rawTarget instanceof Element
-            ? rawTarget
-            : rawTarget?.parentElement;
-
-        if (!target || isInsideExtension(target)) {
-            return false;
-        }
-
-        for (const selector of provider.assistantSelectors) {
-            try {
-                if (target.matches?.(selector) || target.closest?.(selector)) {
-                    return true;
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-
-        const genericSurface = deriveGenericSurfaceElement(target);
-        return Boolean(genericSurface && readRenderedText(genericSurface));
-    }
-
-    function noteGenerationMutation(mutations) {
-        if (generationStartedAt === null) {
-            noteGenerationResponseProgress(Boolean(getKnownAssistantSurface()));
-            return;
-        }
-
-        const touchedResponse = mutations.some(mutationTouchesAssistantResponse);
-
-        if (touchedResponse) {
-            noteGenerationResponseProgress(false);
-            return;
-        }
-
-        noteGenerationResponseProgress(false);
+    function noteGenerationMutation() {
+        noteGenerationResponseProgress();
     }
 
     function startObserver() {
@@ -1816,7 +2157,8 @@
                 rememberMutation(mutation);
             }
 
-            noteGenerationMutation(mutations);
+            noteGenerationMutation();
+            scheduleAutomationTriggerCheck();
 
             if (isEnabled()) {
                 scheduleCheck();
@@ -1895,6 +2237,16 @@
         ].join('');
     }
 
+    function notificationIconSvg() {
+        return [
+            '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">',
+            '<path d="M7 8 9 5h6l2 3v4.5l2 3.5H5l2-3.5V8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="miter"/>',
+            '<path d="M10 19h4" stroke="currentColor" stroke-width="1.8"/>',
+            '<path d="m13.8 9 1.2 1.2 2.6-3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="miter"/>',
+            '</svg>',
+        ].join('');
+    }
+
     function makeRuleRow(rule = {}) {
         const row = document.createElement('tr');
         row.dataset.ruleId = rule.id || createId();
@@ -1917,6 +2269,35 @@
         responseInput.value = rule.responseText || '';
         responseCell.appendChild(responseInput);
 
+        const notificationCell = document.createElement('td');
+        notificationCell.className = 'aiflow-notification-cell';
+        const notificationLabel = document.createElement('label');
+        notificationLabel.className = 'aiflow-notification-check';
+        notificationLabel.title = 'Notify when this rule is triggered';
+        const notificationInput = document.createElement('input');
+        notificationInput.type = 'checkbox';
+        notificationInput.dataset.field = 'notify';
+        notificationInput.checked = Boolean(rule.notify);
+        notificationInput.setAttribute('aria-label', 'Notify when this rule is triggered');
+        const notificationVisual = document.createElement('span');
+        notificationVisual.innerHTML = notificationIconSvg();
+        notificationLabel.appendChild(notificationInput);
+        notificationLabel.appendChild(notificationVisual);
+        notificationCell.appendChild(notificationLabel);
+
+        const searchCell = document.createElement('td');
+        searchCell.className = 'aiflow-rule-search-cell';
+        const searchSelect = document.createElement('select');
+        searchSelect.className = 'aiflow-rule-search';
+        searchSelect.dataset.field = 'searchScope';
+        searchSelect.setAttribute('aria-label', 'Search in');
+        searchSelect.innerHTML = [
+            '<option value="content">All content</option>',
+            '<option value="lastLine">Last line</option>',
+        ].join('');
+        searchSelect.value = rule.searchScope === 'lastLine' ? 'lastLine' : 'content';
+        searchCell.appendChild(searchSelect);
+
         const actionCell = document.createElement('td');
         const removeButton = document.createElement('button');
         removeButton.type = 'button';
@@ -1929,6 +2310,8 @@
 
         row.appendChild(expectedCell);
         row.appendChild(responseCell);
+        row.appendChild(notificationCell);
+        row.appendChild(searchCell);
         row.appendChild(actionCell);
         return row;
     }
@@ -1958,6 +2341,10 @@
             id: row.dataset.ruleId || createId(),
             expectedText: row.querySelector('[data-field="expectedText"]')?.value || '',
             responseText: row.querySelector('[data-field="responseText"]')?.value || '',
+            notify: Boolean(row.querySelector('[data-field="notify"]')?.checked),
+            searchScope: row.querySelector('[data-field="searchScope"]')?.value === 'lastLine'
+                ? 'lastLine'
+                : 'content',
         }));
     }
 
@@ -1965,6 +2352,10 @@
         const theme = document.getElementById('aiflow-theme');
         const accent = document.getElementById('aiflow-accent');
         const sendDelay = document.getElementById('aiflow-send-delay');
+        const automationStartText = document.getElementById('aiflow-automation-start-text');
+        const automationStopText = document.getElementById('aiflow-automation-stop-text');
+        const automationStartScope = document.getElementById('aiflow-automation-start-scope');
+        const automationStopScope = document.getElementById('aiflow-automation-stop-scope');
 
         if (theme) {
             theme.value = preferences.theme;
@@ -1977,17 +2368,49 @@
         if (sendDelay) {
             sendDelay.value = String(preferences.sendDelayMs / 1000);
         }
+
+        if (automationStartText) {
+            automationStartText.value = preferences.automationStartText;
+        }
+
+        if (automationStopText) {
+            automationStopText.value = preferences.automationStopText;
+        }
+
+        if (automationStartScope) {
+            automationStartScope.value = preferences.automationStartScope;
+        }
+
+        if (automationStopScope) {
+            automationStopScope.value = preferences.automationStopScope;
+        }
     }
 
     function readPreferencesFromEditor() {
-        const theme = document.getElementById('aiflow-theme')?.value || 'light';
+        const theme = document.getElementById('aiflow-theme')?.value || DEFAULT_PREFERENCES.theme;
         const accent = document.getElementById('aiflow-accent')?.value || 'green';
         const delaySeconds = Number(document.getElementById('aiflow-send-delay')?.value);
         const sendDelayMs = Number.isFinite(delaySeconds)
             ? Math.round(Math.max(0, Math.min(60, delaySeconds)) * 1000)
             : preferences.sendDelayMs;
+        const automationStartText = document.getElementById('aiflow-automation-start-text')?.value || '';
+        const automationStartScope = document.getElementById('aiflow-automation-start-scope')?.value === 'lastLine'
+            ? 'lastLine'
+            : 'content';
+        const automationStopText = document.getElementById('aiflow-automation-stop-text')?.value || '';
+        const automationStopScope = document.getElementById('aiflow-automation-stop-scope')?.value === 'lastLine'
+            ? 'lastLine'
+            : 'content';
 
-        return { theme, accent, sendDelayMs };
+        return {
+            theme,
+            accent,
+            sendDelayMs,
+            automationStartText,
+            automationStartScope,
+            automationStopText,
+            automationStopScope,
+        };
     }
 
     function applyTheme(
@@ -2057,17 +2480,51 @@
         const open = Boolean(value);
 
         if (root && settings) {
+            const wasOpen = root.dataset.settingsOpen === '1';
+
             if (open) {
+                // Settings is much larger than the compact widget and may need
+                // a temporary viewport adjustment. Remember the compact anchor
+                // before expanding so Back/Save can restore it exactly.
+                if (!wasOpen && widgetVisible && root.dataset.visible === '1') {
+                    const rect = root.getBoundingClientRect();
+
+                    if (rect.width > 0 && rect.height > 0) {
+                        settingsReturnPosition = {
+                            left: rect.left,
+                            top: rect.top,
+                        };
+                    }
+                }
+
                 const placement = chooseSettingsPlacement();
                 root.dataset.settingsPlacement = placement;
                 root.dataset.settingsOpen = '1';
                 placeSettings(placement);
                 settings.hidden = false;
-                window.requestAnimationFrame(ensureWidgetInViewport);
+
+                if (widgetVisible) {
+                    window.requestAnimationFrame(ensureWidgetInViewport);
+                }
             } else {
                 settings.hidden = true;
                 root.dataset.settingsOpen = '0';
-                window.requestAnimationFrame(ensureWidgetInViewport);
+
+                if (wasOpen) {
+                    const position = settingsReturnPosition || readStoredPosition();
+                    settingsReturnPosition = null;
+
+                    if (position) {
+                        // Restore raw coordinates first. Clamping before the
+                        // compact layout is painted can reuse the expanded
+                        // settings dimensions and move the widget incorrectly.
+                        applyWidgetPositionExact(position);
+                    }
+                }
+
+                if (widgetVisible) {
+                    window.requestAnimationFrame(ensureWidgetInViewport);
+                }
             }
         }
 
@@ -2129,23 +2586,57 @@
         }
     }
 
+    function applyWidgetPositionExact(position) {
+        const root = document.getElementById(ROOT_ID);
+
+        if (!root || !position) {
+            return;
+        }
+
+        root.style.setProperty('left', `${position.left}px`, 'important');
+        root.style.setProperty('top', `${position.top}px`, 'important');
+        root.style.setProperty('right', 'auto', 'important');
+        root.style.setProperty('bottom', 'auto', 'important');
+        root.dataset.positioned = '1';
+    }
+
     function applyStoredPosition() {
         const position = readStoredPosition();
 
-        if (position) {
-            setWidgetPosition(position.left, position.top, false);
+        if (!position) {
+            return;
         }
+
+        // Restore the exact saved coordinates even while the widget is hidden.
+        // Hidden elements have a zero-sized bounding box, so clamping here can
+        // incorrectly move a reloaded widget toward the top-left corner.
+        applyWidgetPositionExact(position);
     }
 
     function ensureWidgetInViewport() {
         const root = document.getElementById(ROOT_ID);
 
-        if (!root || root.dataset.positioned !== '1') {
+        if (
+            !root ||
+            root.dataset.positioned !== '1' ||
+            !widgetVisible ||
+            root.dataset.visible !== '1'
+        ) {
             return;
         }
 
         const rect = root.getBoundingClientRect();
-        setWidgetPosition(rect.left, rect.top, true);
+
+        // Never use/persist geometry from a hidden or not-yet-laid-out widget.
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        // Expanded Settings may be temporarily moved so it fits on screen,
+        // but that temporary geometry must never replace the compact widget's
+        // saved position.
+        const persistPosition = root.dataset.settingsOpen !== '1';
+        setWidgetPosition(rect.left, rect.top, persistPosition);
     }
 
     function installDragHandle(handle, root) {
@@ -2187,6 +2678,17 @@
             }
 
             const rect = root.getBoundingClientRect();
+
+            // An explicit drag while Settings is open becomes the new return
+            // anchor. Automatic viewport corrections while Settings is open do
+            // not alter this value.
+            if (root.dataset.settingsOpen === '1') {
+                settingsReturnPosition = {
+                    left: rect.left,
+                    top: rect.top,
+                };
+            }
+
             persistWidgetPosition(rect.left, rect.top);
             root.dataset.dragging = '0';
             drag = null;
@@ -2303,13 +2805,6 @@
         settings.id = 'aiflow-settings';
         settings.hidden = true;
         settings.innerHTML = `
-            <div class="aiflow-settings-header">
-                <div class="aiflow-settings-title">Rules</div>
-                <div class="aiflow-settings-meta">
-                    <span>Provider: <strong id="aiflow-provider"></strong></span>
-                    <span>Shortcut: <strong>Ctrl+Alt+A</strong></span>
-                </div>
-            </div>
             <div class="aiflow-preferences">
                 <label class="aiflow-field">
                     <span>Theme</span>
@@ -2339,7 +2834,43 @@
                 </label>
             </div>
             <div class="aiflow-settings-help">
-                Only rendered DOM text is inspected. Rules are evaluated from top to bottom; the first match wins.
+                Provider: <strong id="aiflow-provider"></strong>. Only rendered DOM text is inspected. Rules are evaluated from top to bottom; the first match wins.
+            </div>
+            <div class="aiflow-automation-triggers">
+                <div class="aiflow-section-title">Automatic ON / OFF</div>
+                <div class="aiflow-trigger-row">
+                    <label class="aiflow-field aiflow-trigger-text">
+                        <span>Turn ON when this text appears</span>
+                        <input id="aiflow-automation-start-text" type="text" placeholder="Leave empty to disable">
+                    </label>
+                    <label class="aiflow-field aiflow-scope-select">
+                        <span>Search in</span>
+                        <select id="aiflow-automation-start-scope">
+                            <option value="content">All content</option>
+                            <option value="lastLine">Last line</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="aiflow-trigger-row">
+                    <label class="aiflow-field aiflow-trigger-text">
+                        <span>Turn OFF when this text appears</span>
+                        <input id="aiflow-automation-stop-text" type="text" placeholder="Leave empty to disable">
+                    </label>
+                    <label class="aiflow-field aiflow-scope-select">
+                        <span>Search in</span>
+                        <select id="aiflow-automation-stop-scope">
+                            <option value="content">All content</option>
+                            <option value="lastLine">Last line</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="aiflow-trigger-help">These triggers are edge-based: text already present when the page loads is ignored. A newly rendered matching AI response can turn automation on or off.</div>
+            </div>
+            <div class="aiflow-settings-header aiflow-rules-header">
+                <div class="aiflow-settings-title">Rules</div>
+                <div class="aiflow-settings-meta">
+                    <span>Shortcut: <strong>Ctrl+Alt+A</strong></span>
+                </div>
             </div>
             <div class="aiflow-table-wrap">
                 <table id="aiflow-rules-table">
@@ -2347,6 +2878,8 @@
                         <tr>
                             <th>Expected text</th>
                             <th>Response text</th>
+                            <th class="aiflow-notification-heading" title="Notify">${notificationIconSvg()}</th>
+                            <th>Search in</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -2395,15 +2928,35 @@
             setSettingsOpen(false);
         });
 
-        document.getElementById('aiflow-save-rules')?.addEventListener('click', async () => {
+        document.getElementById('aiflow-save-rules')?.addEventListener('click', async event => {
+            const saveButton = event.currentTarget;
+
+            if (!(saveButton instanceof HTMLButtonElement) || saveButton.disabled) {
+                return;
+            }
+
+            const nextRules = readRulesFromEditor();
+            const nextPreferences = readPreferencesFromEditor();
+            saveButton.disabled = true;
+            saveButton.setAttribute('aria-busy', 'true');
+            setSettingsStatus('Saving...');
+
             try {
-                await saveRules(readRulesFromEditor());
-                await savePreferences(readPreferencesFromEditor());
-                renderRulesEditor();
-                renderPreferencesEditor();
+                await saveSettings(nextRules, nextPreferences);
+                setSettingsStatus('Saved');
                 setSettingsOpen(false);
             } catch (error) {
-                setSettingsStatus('Save failed', true);
+                console.error('[AI Flow Automator] Could not save settings.', error);
+
+                if (isInvalidExtensionContextError(error)) {
+                    setSettingsStatus('Extension updated — reload this page', true);
+                } else {
+                    const message = normalizeText(error?.message);
+                    setSettingsStatus(message ? `Save failed: ${message}` : 'Save failed', true);
+                }
+            } finally {
+                saveButton.disabled = false;
+                saveButton.removeAttribute('aria-busy');
             }
         });
 
@@ -2562,6 +3115,24 @@
         }, true);
     }
 
+    function confirmMessageSubmission(composer, submittedAt) {
+        const confirm = () => {
+            if (generationStartedAt !== null) {
+                return;
+            }
+
+            const composerCleared = !composer?.isConnected || !getComposerText(composer);
+
+            if (composerCleared || isGenerating()) {
+                startGenerationTimer(submittedAt);
+            }
+        };
+
+        window.setTimeout(confirm, 60);
+        window.setTimeout(confirm, 180);
+        window.setTimeout(confirm, 500);
+    }
+
     function installGenerationHooks() {
         document.addEventListener('click', event => {
             const button = event.target instanceof Element
@@ -2569,11 +3140,6 @@
                 : null;
             const composer = getComposer();
             const composerText = composer ? getComposerText(composer) : '';
-
-            if (button && buttonLooksLikeSend(button)) {
-                startGenerationTimer();
-                return;
-            }
 
             if (!button || !composer || !composerText) {
                 return;
@@ -2583,16 +3149,18 @@
             const composerRect = composer.getBoundingClientRect();
             const nearComposer = Math.abs(buttonRect.left - composerRect.right) <= 220 &&
                 Math.abs(buttonRect.top - composerRect.top) <= 140;
+            const composerForm = composer.closest('form');
+            const sameForm = Boolean(composerForm && button.closest('form') === composerForm);
+            const configuredSendButton = getSendButton(composer);
+            const isLikelySend = buttonLooksLikeSend(button) && (
+                button === configuredSendButton || sameForm || nearComposer
+            );
 
-            if (!nearComposer) {
+            if (!isLikelySend && !nearComposer) {
                 return;
             }
 
-            window.setTimeout(() => {
-                if (!getComposerText(composer) || isGenerating()) {
-                    startGenerationTimer();
-                }
-            }, 80);
+            confirmMessageSubmission(composer, Date.now());
         }, true);
 
         document.addEventListener('keydown', event => {
@@ -2605,7 +3173,7 @@
                 : null;
 
             if (target && isComposerCandidate(target) && getComposerText(target)) {
-                startGenerationTimer();
+                confirmMessageSubmission(target, Date.now());
             }
         }, true);
 
@@ -2615,8 +3183,8 @@
                 : null;
             const composer = getComposer();
 
-            if (form && composer && form.contains(composer)) {
-                startGenerationTimer();
+            if (form && composer && form.contains(composer) && getComposerText(composer)) {
+                startGenerationTimer(Date.now());
             }
         }, true);
     }
@@ -2635,6 +3203,9 @@
         installGenerationHooks();
         installRuntimeMessageListener();
 
+        resetDetectionState();
+        startObserver();
+
         await Promise.all([
             loadRules(),
             loadPreferences(),
@@ -2647,15 +3218,22 @@
         setWidgetVisible(safeSessionGet(STORAGE.visible) === '1', false);
 
         restoreSentMatchFingerprints();
-        resetDetectionState();
+        await waitForPageLoadAndSettle();
         markCurrentSurfacesAsProcessed();
         restoreGenerationTimer();
+        primeAutomationTriggerState();
+        monitoringReady = true;
         updateInterface();
-        startObserver();
         monitorGenerationTime();
+
+        if (isEnabled()) {
+            scheduleCheck();
+        }
 
         window.setInterval(monitorGenerationTime, CONFIG.timerIntervalMs);
         window.setInterval(() => {
+            checkAutomationTriggers();
+
             if (isEnabled()) {
                 void checkFlow();
             }
@@ -2670,18 +3248,33 @@
 
             if (changes[STORAGE.rules]) {
                 rules = sanitizeRules(changes[STORAGE.rules].newValue);
-                resetDetectionState();
-                markCurrentSurfacesAsProcessed();
-                renderRulesEditor();
+
+                try {
+                    resetDetectionState();
+                    markCurrentSurfacesAsProcessed();
+                    renderRulesEditor();
+                } catch (error) {
+                    console.warn('[AI Flow Automator] Rules changed, but runtime state could not be fully refreshed.', error);
+                }
             }
 
             if (changes[STORAGE.preferences]) {
                 preferences = sanitizePreferences(changes[STORAGE.preferences].newValue);
-                renderPreferencesEditor();
-                applyTheme();
+
+                try {
+                    renderPreferencesEditor();
+                    applyTheme();
+                    primeAutomationTriggerState();
+                } catch (error) {
+                    console.warn('[AI Flow Automator] Preferences changed, but the interface could not be fully refreshed.', error);
+                }
             }
 
-            updateInterface();
+            try {
+                updateInterface();
+            } catch (error) {
+                console.warn('[AI Flow Automator] Settings changed, but counters could not be refreshed.', error);
+            }
         });
 
         console.info(

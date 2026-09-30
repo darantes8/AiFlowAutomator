@@ -16,21 +16,23 @@ It is also useful for other long-running AI workflows that periodically pause an
 
 AI Flow Automator uses simple rules that define **what to detect** and **what to send**.
 
-Each rule contains two fields:
+Each rule contains configurable matching, response, notification, and search-scope settings:
 
 | **Field** | **Description** |
 | --- | --- |
 | **Expected text** | Text the extension should detect in the rendered AI response |
 | **Response text** | Message the extension should automatically send when a match is found |
+| **Notify** | Whether Chrome should show a native notification when the rule is successfully triggered |
+| **Search in** | `All content` searches the complete response; `Last line` searches the last non-empty textual line of the assistant message, ignoring trailing attachment/file cards |
 
 ### Example
 
-| **#** | **Expected text** | **Response text** |
-| ---: | --- | --- |
-| 1 | `Ready for your next instruction` | `Proceed` |
-| 2 | `Waiting for your input` | `Go ahead` |
-| 3 | `Should I move on to the next step?` | `Yes` |
-| 4 | `Let me know when you're ready` | `I'm ready` |
+| **#** | **Expected text** | **Response text** | **Search in** |
+| ---: | --- | --- | --- |
+| 1 | `Ready for your next instruction` | `Proceed` | `All content` |
+| 2 | `Waiting for your input` | `Go ahead` | `Last line` |
+| 3 | `Should I move on to the next step?` | `Yes` | `All content` |
+| 4 | `Let me know when you're ready` | `I'm ready` | `All content` |
 
 When automation is enabled, AI Flow Automator continuously monitors the rendered conversation.
 
@@ -115,12 +117,16 @@ The extension does not decide what to say on its own.
 
 - **Automatic rule-based responses**
 - **Multiple configurable rules**
+- **Optional Chrome notification per rule**
+- **Per-rule search scope: All content or Last line**
 - **Top-to-bottom rule priority**
 - **Configurable send delay**
 - **Play / Stop automation control**
+- **Automatic ON / OFF text triggers**
+- **Trigger scope: full response content or last rendered line**
 - **Floating control widget**
 - **Draggable interface**
-- **Light and Dark modes**
+- **Dark mode by default, with Light mode available**
 - **Custom accent color**
 - **Live generation timer**
 - **Recent generation duration history**
@@ -155,6 +161,8 @@ Then enter the response that should be sent:
 ```text
 Response text: Proceed
 ```
+
+Choose **Search in** for the rule: **All content** searches the complete AI response, while **Last line** restricts matching to the last non-empty textual line of the assistant message and ignores trailing attachment/file cards. Enable the notification icon if you want Chrome to show a desktop notification after the rule successfully triggers and its configured response is sent.
 
 ### 3. Configure the delay
 
@@ -263,11 +271,38 @@ You can enable it again whenever you want.
 
 ---
 
+## Automatic ON / OFF triggers
+
+Settings can optionally define text that automatically turns AI Flow Automator **ON** or **OFF**.
+
+For each trigger, choose where the text must be found in the most recent rendered AI response:
+
+- **All content** — searches the complete response text.
+- **Last line** — searches only the last non-empty textual line of the assistant message, ignoring trailing attachment/file cards.
+
+Leave a trigger text empty to disable that trigger.
+
+These triggers are edge-based. Text that is already present when the page finishes loading is treated as existing content and does not change the automation state. A newly rendered matching response can change the state after active generation has finished.
+
+When an ON trigger fires, the current response is baselined before normal rule processing begins, preventing the trigger response itself from being mistaken for a new rule match.
+
+---
+
+## Rule notifications
+
+Each rule has an optional notification control. When enabled, Chrome shows a native notification after that rule successfully triggers and its configured response is submitted.
+
+The notification identifies the rule by its configured **Expected text**.
+
+Rule notifications require Chrome's `notifications` extension permission and are disabled by default for existing and newly created rules. Each rule also stores its own **Search in** scope, independently of the global Automatic ON / OFF trigger scopes.
+
+---
+
 ## Generation timer
 
 AI Flow Automator includes a built-in timer that tracks how long AI generations take.
 
-The timer starts when a message is submitted, including messages automatically submitted by the extension.
+The timer starts from the message submission that begins an AI processing cycle, including messages automatically submitted by the extension. Page-rendering mutations by themselves do not start the timer.
 
 Recent completed durations are displayed in a compact history such as:
 
@@ -317,7 +352,8 @@ Your main configuration is stored locally by the Chrome extension.
 
 This includes:
 
-- Rules
+- Rules and their notification preferences
+- Automatic ON / OFF trigger text and trigger scope
 - Theme
 - Accent color
 - Send delay
@@ -339,7 +375,7 @@ This includes information such as:
 - Generation history
 - Duplicate-processing state
 
-Reloading the same tab preserves this runtime state for the session.
+Reloading the same tab preserves this runtime state for the session. Rule monitoring resumes only after the page finishes loading and the rendered DOM has briefly stabilized, preventing old content from being treated as a new response during reload.
 
 ---
 
@@ -347,10 +383,10 @@ Reloading the same tab preserves this runtime state for the session.
 
 The widget can be customized from **Settings**.
 
-You can choose:
+The widget starts in **Dark mode** by default. You can choose:
 
-- **Light mode**
 - **Dark mode**
+- **Light mode**
 - **Accent color**
 
 These appearance settings do not affect your automation rules.
@@ -404,7 +440,8 @@ Your extension configuration is stored using Chrome extension storage.
 
 Stored configuration includes:
 
-- Automation rules
+- Automation rules and notification flags
+- Automatic ON / OFF trigger text and trigger scope
 - Theme preference
 - Accent color
 - Send delay
@@ -550,6 +587,9 @@ Keep the following in mind:
 - Rule order matters.
 - The first matching rule takes priority.
 - Automatic responses are only sent while automation is enabled.
+- Optional ON / OFF triggers can change the automation state when newly rendered response text matches.
+- Rule notifications are shown only for rules whose notification control is enabled.
+- Each rule can search either the full rendered response (`All content`) or only its last non-empty textual line (`Last line`), ignoring trailing attachment/file cards.
 - Responses are based entirely on rules configured by you.
 - Broad rules may match more situations than intended.
 - Changes to an AI website's interface may affect extension behavior.
@@ -582,6 +622,8 @@ Waiting
 Sending
     ↓
 Duplicate protection
+    ↓
+Optional notification
     ↓
 Monitoring again
 ```
