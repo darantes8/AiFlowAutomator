@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <meta name="description" content="Privacy Policy for the AI Flow Automator Chrome extension." />
+  <title>Privacy Policy — AI Flow Automator</title>
+
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --text: #172033;
+      --muted: #667085;
+      --border: #e6eaf0;
+      --primary: #5b5bd6;
+      --primary-dark: #4343b8;
+      --accent: #ececff;
+      --success: #19725d;
+      --shadow: 0 18px 50px rgba(23, 32, 51, 0.08);
+      --radius: 20px;
+      --radius-sm: 12px;
+      --max-width: 920px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(91, 91, 214, 0.10), transparent 32rem),
+        linear-gradient(180deg, #fafbff 0%, var(--bg) 100%);
+      line-height: 1.7;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      width: min(calc(100% - 32px), var(--max-width));
+      margin: 0 auto;
+      padding: 48px 0 64px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .logo {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), #8888f3);
+      box-shadow: 0 8px 24px rgba(91, 91, 214, 0.28);
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+    .tag {
+      padding: 7px 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      padding: 42px;
+      border: 1px solid rgba(91, 91, 214, 0.12);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, rgba(91, 91, 214, 0.10), rgba(255, 255, 255, 0.94) 45%),
+        var(--surface);
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--primary-dark);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    h1,
+    h2 {
+      margin-top: 0;
+      letter-spacing: -0.035em;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin-bottom: 14px;
+      font-size: clamp(34px, 6vw, 52px);
+      line-height: 1.08;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .summary-card {
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .summary-card span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .content {
+      display: grid;
+      gap: 16px;
+    }
+
+    .section {
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 8px 28px rgba(23, 32, 51, 0.045);
+    }
+
+    .section h2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 22px;
+    }
+
+    .icon {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--primary-dark);
+      font-size: 17px;
+    }
+
+    .section p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .section p + p {
+      margin-top: 12px;
+    }
+
+    .notice {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-left: 4px solid var(--success);
+      border-radius: 10px;
+      background: #f0faf6;
+      color: #315e51;
+    }
+
+    ul {
+      margin: 14px 0 0;
+      padding-left: 22px;
+      color: var(--muted);
+    }
+
+    li + li {
+      margin-top: 7px;
+    }
+
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 28px;
+      padding: 18px 4px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .footer-note {
+      max-width: 620px;
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        width: min(calc(100% - 22px), var(--max-width));
+        padding-top: 24px;
+      }
+
+      .hero {
+        padding: 28px 22px;
+      }
+
+      .summary {
+        grid-template-columns: 1fr;
+      }
+
+      .section {
+        padding: 24px 20px;
+      }
+
+      .topbar,
+      footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">AI</div>
+        <span>AI Flow Automator</span>
+      </div>
+
+      <span class="tag">Privacy Policy</span>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow">Privacy by design</div>
+
+      <h1>Your automation rules stay in your browser.</h1>
+
+      <p>
+        AI Flow Automator is designed to automate repetitive interactions on supported
+        AI chat websites. The extension detects user-defined text in rendered responses
+        and can automatically submit the response configured by the user, without sending
+        your rules or conversation content to the developer's servers.
+      </p>
+
+      <div class="summary">
+        <div class="summary-card">
+          <strong>Local settings</strong>
+          <span>Automation rules and preferences are stored in Chrome storage.</span>
+        </div>
+
+        <div class="summary-card">
+          <strong>No tracking</strong>
+          <span>We do not use browsing or conversation data for ads or profiling.</span>
+        </div>
+
+        <div class="summary-card">
+          <strong>No data sales</strong>
+          <span>Your extension data is not sold, rented, or shared with third parties.</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="content">
+      <section class="section">
+        <h2><span class="icon">⚙️</span> Data stored by the extension</h2>
+
+        <p>
+          AI Flow Automator stores only the information needed to provide its automation
+          features and preserve the user's configuration between browser sessions.
+        </p>
+
+        <ul>
+          <li>user-defined expected text rules;</li>
+          <li>user-defined response text;</li>
+          <li>rule search mode and related rule settings;</li>
+          <li>response delay and automation preferences;</li>
+          <li>enabled or disabled state;</li>
+          <li>interface preferences required by the extension.</li>
+        </ul>
+
+        <div class="notice">
+          These settings are stored using Google Chrome storage APIs and are not sent
+          to servers operated by the developer.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">👁️</span> How page content is used</h2>
+
+        <p>
+          To perform automation, the extension needs to inspect rendered text on supported
+          AI chat pages and interact with the message input when a configured rule matches.
+        </p>
+
+        <p>
+          This access is used only while providing the extension's automation functionality.
+          Conversation content is processed in the browser and is not intentionally collected,
+          stored as conversation history, or transmitted to the developer's servers.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">🔐</span> Data we do not collect</h2>
+
+        <p>AI Flow Automator does not intentionally collect or store:</p>
+
+        <ul>
+          <li>your name, email address, or other personal identification information;</li>
+          <li>passwords, credentials, authentication tokens, or account secrets;</li>
+          <li>financial or payment information;</li>
+          <li>health information;</li>
+          <li>precise location;</li>
+          <li>browsing history for analytics or profiling;</li>
+          <li>AI conversation content on developer-controlled servers;</li>
+          <li>data for advertising, behavioral tracking, or user profiling.</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">🌐</span> Host permissions</h2>
+
+        <p>
+          Host permissions are required so AI Flow Automator can run on supported AI chat
+          websites. These permissions allow the extension to read rendered response text,
+          detect configured rules, and interact with the page's message input when automation
+          is enabled.
+        </p>
+
+        <p>
+          Host access is used only for the extension's user-requested functionality and not
+          for advertising, unrelated monitoring, or building profiles of browsing activity.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">↗</span> Transmission and sharing</h2>
+
+        <p>
+          AI Flow Automator does not sell, rent, or share extension settings or AI conversation
+          content with third parties.
+        </p>
+
+        <p>
+          The extension does not use your stored rules or page content for advertising,
+          marketing, profiling, or purposes unrelated to its automation features.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">🧩</span> Remote code</h2>
+
+        <p>
+          AI Flow Automator does not rely on remotely hosted JavaScript or WebAssembly to
+          provide its functionality. Executable extension code is packaged with the extension
+          distributed through the Chrome Web Store.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">🗑️</span> Deleting extension data</h2>
+
+        <p>
+          Users can change or remove automation rules through the extension's settings.
+          Stored extension data can also be removed by clearing the extension's site or
+          storage data through Chrome, or by uninstalling the extension.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">⚠️</span> Third-party websites</h2>
+
+        <p>
+          AI Flow Automator operates on third-party AI chat websites. Those websites have
+          their own privacy policies and data practices, which are separate from this policy.
+          This Privacy Policy describes only the behavior of the AI Flow Automator extension.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">🛠️</span> Changes to this policy</h2>
+
+        <p>
+          This Privacy Policy may be updated if AI Flow Automator adds new functionality or
+          changes how extension data is handled. When that happens, this page will be updated
+          to reflect the current behavior of the extension.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2><span class="icon">✉️</span> Contact</h2>
+
+        <p>
+          For questions about privacy or the operation of AI Flow Automator, use the support
+          contact listed on the extension's official Chrome Web Store page or in the project's
+          official repository.
+        </p>
+      </section>
+    </div>
+
+    <footer>
+      <div class="footer-note">
+        AI Flow Automator — rule-based automation for repetitive AI chat workflows.
+      </div>
+      <div>Last updated: September 2026</div>
+    </footer>
+  </main>
+</body>
+</html>
+
